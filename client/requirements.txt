@@ -1,0 +1,13 @@
+# Proxy Request QPS 스크립트 필수 패키지
+# 설치 명령: pip install -r requirements.txt
+
+# HTTP 클라이언트 (비동기 요청)
+httpx>=0.24.0
+
+# 데이터 처리 및 Excel 저장
+pandas>=1.5.0
+openpyxl>=3.0.0
+
+# 추가 유용한 패키지 (선택사항)
+# numpy>=1.24.0  # pandas와 함께 사용하면 성능 향상
+
