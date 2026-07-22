@@ -110,6 +110,23 @@ DATASET_ALIASES = {
     "lmsys-chat-1m": "lmsys_english_shuffled.json",
 }
 
+DEFAULT_CONFIG = {
+    "dataset": os.getenv("BYSTANDER_DATASET", "sharegpt"),
+    "proxy_host": os.getenv("PROXY_HOST", "127.0.0.1"),
+    "proxy_port": int(os.getenv("PROXY_PORT", "8012")),
+    "qps": 10,
+    "max_concurrent": 500,
+    "start_index": 0,
+    "total": 1000,
+    "model": os.getenv("BYSTANDER_MODEL",
+                       "Meta-Llama-3.1-8B-Instruct-AWQ-INT4"),
+    "temperature": 1.0,
+    "max_turns": 3,
+    "output": os.getenv("BYSTANDER_OUTPUT",
+                        "results/proxy_experiment_results.xlsx"),
+    "client_timeout": 600.0,
+}
+
 def parse_qps(qps_str: str) -> tuple:
     """
     QPS 문자열 파싱
@@ -146,6 +163,35 @@ def parse_qps(qps_str: str) -> tuple:
         if qps <= 0:
             raise ValueError(f"QPS는 양수여야 합니다: {qps_str}")
         return (False, qps, None)
+
+
+def qps_argument(value: str) -> str:
+    try:
+        parse_qps(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return value
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("0보다 큰 정수여야 합니다.")
+    return parsed
+
+
+def non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("0 이상의 정수여야 합니다.")
+    return parsed
+
+
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("0보다 큰 숫자여야 합니다.")
+    return parsed
 
 def get_next_qps(min_qps: float, max_qps: float) -> float:
     """
@@ -572,7 +618,8 @@ async def send_streaming_request(
     messages: List[Dict[str, str]],
     model: str,
     temperature: float,
-    semaphore: asyncio.Semaphore
+    semaphore: asyncio.Semaphore,
+    timeout_seconds: float = 600.0,
 ) -> RequestResult:
     """프록시 서버로 스트리밍 요청 전송"""
     global shutdown_requested, actual_http_sent_count
@@ -617,7 +664,10 @@ async def send_streaming_request(
                 "POST",
                 proxy_url,
                 json=request_payload,
-                timeout=httpx.Timeout(600.0, connect=10.0, read=600.0, write=10.0)  # 읽기 10분, 연결/쓰기 10초
+                timeout=httpx.Timeout(timeout_seconds,
+                                      connect=10.0,
+                                      read=timeout_seconds,
+                                      write=10.0)
             ) as response:
                 http_status = response.status_code
                 
@@ -689,16 +739,22 @@ async def send_streaming_request(
 async def run_experiment(args):
     """QPS 제어 실험 실행"""
     global shutdown_requested, actual_http_sent_count
+    shutdown_requested = False
     actual_http_sent_count = 0  # 실험 시작 시 리셋
+
+    if getattr(args, "seed", None) is not None:
+        random.seed(args.seed)
     
     # 실험 시작 시간 기록
     experiment_start_time = time.time()
     experiment_start_str = time.strftime("%Y-%m-%d %H:%M:%S")
     
     # 데이터셋 로드 및 타입 감지 (먼저 수행)
-    dataset = load_dataset_auto(args.sharegpt,
+    dataset_arg = getattr(args, "dataset", getattr(args, "sharegpt", None))
+    dataset = load_dataset_auto(dataset_arg,
                                 start_index=args.start_index,
-                                limit=args.total)
+                                limit=args.total,
+                                dataset_dir=getattr(args, "dataset_dir", None))
     if not dataset:
         raise SystemExit("데이터셋이 비어있습니다.")
     
@@ -709,6 +765,19 @@ async def run_experiment(args):
             dataset_type = "sharegpt"
         elif dataset[0].get("conversation"):
             dataset_type = "lmsys-chat-1m"
+
+    if getattr(args, "dry_run", False):
+        sample = dataset[0].get("conversations") or dataset[0].get(
+            "conversation", [])
+        messages = convert_to_openai_messages(sample,
+                                              max_turns=args.max_turns)
+        print("\n드라이런 검증 완료")
+        print(f"  데이터셋 형식: {dataset_type}")
+        print(f"  선택된 대화 수: {len(dataset)}")
+        print(f"  첫 대화 메시지 수: {len(messages)}")
+        print(f"  QPS: {args.qps}")
+        print("  프록시에는 요청을 보내지 않았습니다.")
+        return
     
     # 알고리즘 매핑 (숫자 → 알고리즘 이름)
     if args.algorithm:
@@ -930,7 +999,9 @@ async def run_experiment(args):
                             messages=messages,
                             model=args.model,
                             temperature=args.temperature,
-                            semaphore=semaphore
+                            semaphore=semaphore,
+                            timeout_seconds=getattr(args, "client_timeout",
+                                                    600.0),
                         )
                     )
                     active_tasks.add(task)
@@ -1020,6 +1091,9 @@ async def run_experiment(args):
 def save_results(results: List[RequestResult], output_file: str, 
                 start_time: str, end_time: str, duration: float):
     """결과를 파일로 저장 (Excel 또는 CSV)"""
+    output_path = Path(output_file).expanduser()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_file = str(output_path)
     if output_file.lower().endswith('.csv'):
         save_results_to_csv(results, output_file, start_time, end_time, duration)
     else:
@@ -1195,23 +1269,7 @@ def print_summary(results: List[RequestResult]):
     
     print(f"{'='*60}\n")
 
-def main():
-    # 기본 설정
-    DEFAULT_CONFIG = {
-        "sharegpt": "./sharegpt_shuffled.json",
-        "proxy_host": "127.0.0.1",
-        "proxy_port": 8012,
-        "qps": 10,
-        "max_concurrent": 500,
-        "start_index": 0,
-        "total": 1000,
-        "model": "Meta-Llama-3.1-8B-Instruct-AWQ-INT4",
-        "temperature": 1.0,
-        "max_turns": 3,
-        "output": "results/proxy_experiment_results.xlsx",
-        "client_timeout": 500.0,
-    }
-    
+def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Proxy Server로 QPS 제어 요청 전송",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1243,7 +1301,7 @@ def main():
     # 프록시 서버 설정
     parser.add_argument("--proxy-host", default=DEFAULT_CONFIG["proxy_host"],
                        help=f"프록시 서버 호스트 (기본값: {DEFAULT_CONFIG['proxy_host']})")
-    parser.add_argument("--proxy-port", type=int, default=DEFAULT_CONFIG["proxy_port"],
+    parser.add_argument("--proxy-port", type=positive_int, default=DEFAULT_CONFIG["proxy_port"],
                        help=f"프록시 서버 포트 (기본값: {DEFAULT_CONFIG['proxy_port']})")
     parser.add_argument("--algorithm", type=int, choices=[1, 2, 3, 4, 5],
                        help="라우팅 알고리즘 (1:RR, 2:WRR, 3:SQF, 4:SLM, 5:FJ_SQF)")
@@ -1259,9 +1317,9 @@ def main():
                        help="SLM 모드 비활성화 E2E latency threshold in seconds (기본값: 10.0)")
 
     # Fisher-Jenks SQF 설정
-    parser.add_argument("--fj-window-size", type=int, default=50,
+    parser.add_argument("--fj-window-size", type=positive_int, default=50,
                        help="FJ_SQF diff 슬라이딩 윈도우 크기 (기본값: 50)")
-    parser.add_argument("--fj-min-samples", type=int, default=15,
+    parser.add_argument("--fj-min-samples", type=positive_int, default=15,
                        help="FJ_SQF 계산 최소 샘플 수 (기본값: 15)")
     parser.add_argument("--fj-default-threshold", type=float, default=0.0,
                        help="FJ_SQF 샘플 부족 시 기본 split point in seconds (기본값: 0.0)")
@@ -1269,19 +1327,22 @@ def main():
                        help="FJ 프리셋 이름 (서버 config.py EXPERIMENT_PRESETS에 정의된 프리셋)")
     
     # QPS 제어 설정
-    parser.add_argument("--qps", type=str, default=str(DEFAULT_CONFIG["qps"]),
+    parser.add_argument("--qps", type=qps_argument, default=str(DEFAULT_CONFIG["qps"]),
                        help=f"초당 요청 수 (고정: 숫자, 동적: 최소-최대) (기본값: {DEFAULT_CONFIG['qps']}, 예: '10' 또는 '12-18')")
-    parser.add_argument("--qps-change-interval", type=float, default=30.0,
+    parser.add_argument("--qps-change-interval", type=positive_float, default=30.0,
                        help="동적 QPS 변경 주기 (초) (기본값: 30.0)")
-    parser.add_argument("--max-concurrent", type=int, default=DEFAULT_CONFIG["max_concurrent"],
+    parser.add_argument("--max-concurrent", type=positive_int, default=DEFAULT_CONFIG["max_concurrent"],
                        help=f"최대 동시 요청 수 (기본값: {DEFAULT_CONFIG['max_concurrent']})")
     
     # 데이터셋 설정
-    parser.add_argument("--sharegpt", default=DEFAULT_CONFIG["sharegpt"],
-                       help="ShareGPT 데이터셋 파일 경로")
-    parser.add_argument("--start-index", type=int, default=DEFAULT_CONFIG["start_index"],
+    parser.add_argument("--dataset", "--sharegpt", dest="dataset",
+                       default=DEFAULT_CONFIG["dataset"],
+                       help="데이터셋 경로 또는 별칭(sharegpt/lmsys). --sharegpt도 호환 지원")
+    parser.add_argument("--dataset-dir",
+                       help="데이터셋 검색 디렉터리 (또는 BYSTANDER_DATASET_DIR 사용)")
+    parser.add_argument("--start-index", type=non_negative_int, default=DEFAULT_CONFIG["start_index"],
                        help=f"시작 인덱스 (기본값: {DEFAULT_CONFIG['start_index']})")
-    parser.add_argument("--total", type=int, default=DEFAULT_CONFIG["total"],
+    parser.add_argument("--total", type=positive_int, default=DEFAULT_CONFIG["total"],
                        help=f"전송할 총 요청 수 (기본값: {DEFAULT_CONFIG['total']})")
     
     # 모델 설정
@@ -1289,7 +1350,7 @@ def main():
                        help="모델 이름")
     parser.add_argument("--temperature", type=float, default=DEFAULT_CONFIG["temperature"],
                        help=f"생성 온도 (기본값: {DEFAULT_CONFIG['temperature']})")
-    parser.add_argument("--max-turns", type=int, default=DEFAULT_CONFIG["max_turns"],
+    parser.add_argument("--max-turns", type=positive_int, default=DEFAULT_CONFIG["max_turns"],
                        help=f"최대 대화 턴 수 (기본값: {DEFAULT_CONFIG['max_turns']})")
     
     # 출력 설정
@@ -1297,8 +1358,13 @@ def main():
                        help="결과 출력 파일 (.xlsx 또는 .csv)")
     
     # 타임아웃 설정
-    parser.add_argument("--client-timeout", type=float, default=DEFAULT_CONFIG["client_timeout"],
+    parser.add_argument("--client-timeout", type=positive_float, default=DEFAULT_CONFIG["client_timeout"],
                        help=f"HTTP 클라이언트 타임아웃(초) (기본값: {DEFAULT_CONFIG['client_timeout']})")
+
+    parser.add_argument("--seed", type=int,
+                       help="동적 QPS 난수 시드 (미지정 시 기존의 비결정적 동작 유지)")
+    parser.add_argument("--dry-run", action="store_true",
+                       help="데이터셋과 옵션만 검증하고 프록시 요청 없이 종료")
     
     # 쿠버네티스 데몬셋 재시작 설정
     parser.add_argument("--k8s-restart", action="store_true",
@@ -1316,7 +1382,11 @@ def main():
     parser.add_argument("--k8s-wait-time", type=int, default=30,
                        help="데몬셋 재시작 후 대기 시간(초) (기본값: 30)")
     
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = build_argument_parser().parse_args()
     
     # 실험 실행
     asyncio.run(run_experiment(args))
