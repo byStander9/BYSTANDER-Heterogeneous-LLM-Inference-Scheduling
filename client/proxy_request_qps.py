@@ -78,6 +78,7 @@ import json
 import csv
 import time
 import argparse
+import os
 import signal
 import re
 import random
@@ -100,6 +101,13 @@ ALGORITHM_MAP = {
     3: "shortest_queue_first",
     4: "slm_adaptive",
     5: "fisher_jenks_sqf"
+}
+
+CLIENT_DIR = Path(__file__).resolve().parent
+DATASET_ALIASES = {
+    "sharegpt": "sharegpt_shuffled.json",
+    "lmsys": "lmsys_english_shuffled.json",
+    "lmsys-chat-1m": "lmsys_english_shuffled.json",
 }
 
 def parse_qps(qps_str: str) -> tuple:
@@ -180,42 +188,94 @@ def clean_text(text: str) -> str:
         return text
     return text
 
-def load_dataset_auto(file_path: str, start_index: int = 0, limit: int = None) -> List[Dict[str, Any]]:
+def resolve_dataset_path(file_path: str,
+                         dataset_dir: Optional[str] = None) -> Path:
+    """Resolve an explicit path or a ShareGPT/LMSYS dataset alias."""
+    requested = Path(file_path).expanduser()
+    dataset_name = DATASET_ALIASES.get(file_path.lower(), file_path)
+    candidates = [requested]
+
+    search_dirs = []
+    if dataset_dir:
+        search_dirs.append(Path(dataset_dir).expanduser())
+    if env_dir := os.getenv("BYSTANDER_DATASET_DIR"):
+        search_dirs.append(Path(env_dir).expanduser())
+    search_dirs.extend([Path.cwd(), CLIENT_DIR])
+
+    candidates.extend(directory / dataset_name for directory in search_dirs)
+
+    checked = []
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in checked:
+            continue
+        checked.append(resolved)
+        if resolved.is_file():
+            return resolved
+
+    checked_paths = "\n  - ".join(str(path) for path in checked)
+    raise FileNotFoundError(
+        f"데이터셋 파일을 찾을 수 없습니다: {file_path}\n"
+        f"확인한 경로:\n  - {checked_paths}\n"
+        "직접 경로를 지정하거나 BYSTANDER_DATASET_DIR을 설정하세요.")
+
+
+def iter_dataset_records(file_path: Path):
+    """Yield JSON-array or JSONL records without loading the file as text."""
+    with file_path.open("r", encoding="utf-8") as source:
+        first_char = ""
+        while char := source.read(1):
+            if not char.isspace():
+                first_char = char
+                break
+
+    if first_char == "[":
+        try:
+            import ijson
+        except ImportError:
+            with file_path.open("r", encoding="utf-8") as source:
+                yield from json.load(source)
+        else:
+            with file_path.open("rb") as source:
+                yield from ijson.items(source, "item")
+        return
+
+    with file_path.open("r", encoding="utf-8") as source:
+        for line_number, line in enumerate(source, start=1):
+            if not line.strip():
+                yield None
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError as exc:
+                print(f"경고: JSONL {line_number}행을 건너뜁니다: {exc}")
+                yield None
+
+
+def load_dataset_auto(file_path: str,
+                      start_index: int = 0,
+                      limit: int = None,
+                      dataset_dir: Optional[str] = None
+                      ) -> List[Dict[str, Any]]:
     """데이터셋 로드 (ShareGPT / LMSYS 형식 자동 감지, JSON/JSONL 자동 감지)
     
     지원 형식:
     - ShareGPT: {"conversations": [{"from": "human/gpt", "value": "..."}]}
     - LMSYS:    {"conversation": [{"role": "user/assistant", "content": "..."}]}
     """
-    print(f"데이터셋 로드 중: {file_path}")
-    with open(file_path, "r", encoding="utf-8") as f:
-        content = f.read().strip()
-    
+    resolved_path = resolve_dataset_path(file_path, dataset_dir=dataset_dir)
+    print(f"데이터셋 로드 중: {resolved_path}")
+
     items = []
-    if content.startswith("["):
-        # JSON 배열 형식
-        data = json.loads(content)
-        for i, item in enumerate(data):
-            if i < start_index:
-                continue
-            # ShareGPT 형식 (conversations 키) 또는 LMSYS 형식 (conversation 키) 모두 지원
-            if item.get("conversations") or item.get("conversation"):
-                items.append(item)
-                if limit and len(items) >= limit:
-                    break
-    else:
-        # JSONL 형식
-        for i, line in enumerate(content.splitlines()):
-            if i < start_index:
-                continue
-            try:
-                item = json.loads(line)
-                if item.get("conversations") or item.get("conversation"):
-                    items.append(item)
-                    if limit and len(items) >= limit:
-                        break
-            except:
-                continue
+    for index, item in enumerate(iter_dataset_records(resolved_path)):
+        if index < start_index:
+            continue
+        if not isinstance(item, dict):
+            continue
+        if item.get("conversations") or item.get("conversation"):
+            items.append(item)
+            if limit is not None and len(items) >= limit:
+                break
     
     # 데이터셋 형식 감지 및 출력
     if items:
@@ -636,7 +696,9 @@ async def run_experiment(args):
     experiment_start_str = time.strftime("%Y-%m-%d %H:%M:%S")
     
     # 데이터셋 로드 및 타입 감지 (먼저 수행)
-    dataset = load_dataset_auto(args.sharegpt, start_index=args.start_index, limit=args.total)
+    dataset = load_dataset_auto(args.sharegpt,
+                                start_index=args.start_index,
+                                limit=args.total)
     if not dataset:
         raise SystemExit("데이터셋이 비어있습니다.")
     
@@ -1261,4 +1323,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
