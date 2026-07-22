@@ -91,6 +91,7 @@ The raw Hugging Face dataset can be converted to the expected shuffled JSON
 format with:
 
 ```bash
+pip install datasets
 python preprocess_lmsys.py \
   --input /data/lmsys-chat-1m/processed \
   --output /data/bystander/lmsys_english_shuffled.json

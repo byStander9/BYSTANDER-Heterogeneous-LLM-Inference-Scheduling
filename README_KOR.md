@@ -148,6 +148,7 @@ cd client
 pip install -r requirements.txt
 
 # 데이터셋 준비
+pip install datasets                                  # LMSYS 원본 전처리 시에만 필요
 python preprocess_lmsys.py                            # LMSYS (영어 필터 + shuffle)
 # sharegpt_shuffled.json 은 별도로 준비 (리포에 미포함)
 
