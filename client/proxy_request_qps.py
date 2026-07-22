@@ -2,7 +2,7 @@
 """
 === Proxy Server로 QPS 제어 요청 전송 도구 ===
 
-이 스크립트는 sharegpt_shuffled.json의 대화 데이터를 프록시 서버로 스트리밍 방식으로 전송합니다.
+이 스크립트는 ShareGPT/LMSYS 대화 데이터를 프록시 서버로 스트리밍 방식으로 전송합니다.
 QPS(초당 요청 수)를 설정하여 부하를 조절할 수 있습니다.
 
 주요 기능:
@@ -52,7 +52,8 @@ QPS(초당 요청 수)를 설정하여 부하를 조절할 수 있습니다.
     --fj-window-size    FJ_SQF diff 슬라이딩 윈도우 크기 (기본값: 50)
     --fj-min-samples    FJ_SQF 최소 샘플 수 (기본값: 15)
     --fj-default-threshold  FJ_SQF 기본 split point (기본값: 0.0s)
-    --sharegpt          데이터셋 파일 경로
+    --dataset           데이터셋 파일 경로 또는 sharegpt/lmsys 별칭
+    --sharegpt          --dataset의 하위 호환 별칭
     --output            결과 저장 파일 (.xlsx 또는 .csv)
     --model             모델 이름
     --temperature       생성 온도 (기본값: 1.0)

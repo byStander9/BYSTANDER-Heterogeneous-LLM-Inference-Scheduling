@@ -180,11 +180,15 @@ python proxy_request_qps.py \
     --proxy-host "$PROXY_HOST" --proxy-port "$PROXY_PORT" \
     --qps 50 --total 4000 \
     --algorithm 5 \
-    --sharegpt ./lmsys_english_shuffled.json \
+    --dataset ./lmsys_english_shuffled.json \
     --output results/run.xlsx
 ```
 
-`--algorithm` accepts the IDs (1..5) from the table above.
+`--algorithm` accepts the IDs (1..5) from the table above. `--dataset` also
+accepts the `sharegpt` and `lmsys` aliases when `BYSTANDER_DATASET_DIR` points
+to the directory containing the prepared files. Use `--dry-run` to validate a
+dataset and command without contacting the proxy. See `client/README.md` for
+the complete client workflow. The legacy `--sharegpt` flag remains supported.
 
 ## Collected Metrics
 
