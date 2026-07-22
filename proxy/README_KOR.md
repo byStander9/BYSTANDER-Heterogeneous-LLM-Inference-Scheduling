@@ -225,9 +225,11 @@ async def run_experiment():
 
 #### 1. 백엔드 서버 상태 (포워딩 시점)
 
-각 백엔드 `/metrics` 엔드포인트에서 수집:
-- `vllm:num_requests_running`: 현재 실행 중인 요청 수
-- `vllm:num_requests_waiting`: 대기 중인 요청 수
+각 백엔드 `/metrics?format=json` 엔드포인트에서 JSON으로 수집:
+- `engine_running_requests`: 현재 실행 중인 요청 수
+- `engine_waiting_requests`: 대기 중인 요청 수
+- `inflight_prompt_token_lengths`: SLM Adaptive와 Fisher-Jenks SQF가
+  사용하는 프롬프트 길이 목록
 
 #### 2. 요청 레이턴시 (완료 시점)
 

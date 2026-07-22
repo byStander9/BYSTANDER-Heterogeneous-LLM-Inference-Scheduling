@@ -26,8 +26,8 @@ A Korean version of this document is available at
 │  proxy_request_qps │       │  - Metrics collection        │       │  (customized vLLM image)  │
 └────────────────────┘       └──────────────────────────────┘       └───────────────────────────┘
           │                             │                                       │
-          │  QPS / algorithm / preset   │  collects running, waiting,           │  exposes /metrics,
-          │  dataset, total_requests    │  inflight tokens per backend          │  /api_server_metrics
+          │  QPS / algorithm / preset   │  collects running, waiting,           │  exposes /metrics
+          │  dataset, total_requests    │  inflight tokens per backend          │  (Prometheus + JSON)
           └────────────────────────────▶                                        │
                                         ◀───── e2e latency, ttft ─────────────  │
 ```
@@ -41,9 +41,9 @@ A Korean version of this document is available at
   inference to estimate the expected e2e latency per GPU type before
   dispatching each request.
 - **Backend nodes** — a customized vLLM image running inside containers on
-  the GPU nodes. In addition to the standard `/metrics` endpoint, each
-  backend exposes `/api_server_metrics` with the in-flight prompt-token
-  length distribution.
+  the GPU nodes. Standard Prometheus scrapes use `/metrics`, while the proxy
+  uses `/metrics?format=json` for running, waiting, and in-flight prompt-token
+  length data in one request.
   (The container image and SLM model weights are distributed separately and
   are **not** included in this repository.)
 
@@ -138,11 +138,13 @@ endpoints:
 
 - `POST /v1/chat/completions` — OpenAI-compatible (streaming and
   non-streaming).
-- `GET /metrics` — Prometheus format; must include at least
-  `vllm:num_requests_running` and `vllm:num_requests_waiting`.
-- `GET /api_server_metrics` — JSON; must include
+- `GET /metrics` — standard Prometheus format.
+- `GET /metrics?format=json` — JSON containing
+  `engine_running_requests`, `engine_waiting_requests`, and
   `inflight_prompt_token_lengths`. Required by SLM Adaptive and
   Fisher-Jenks SQF.
+- `POST /reset_custom_metrics` — clears BYSTANDER's custom in-memory request
+  state between experiments. Call only when no inference requests are active.
 
 ### 2. Start the Proxy Server
 

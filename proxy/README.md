@@ -229,10 +229,12 @@ records the request's TTFT and E2E latency when it finishes.
 
 #### 1. Backend state (at forward time)
 
-Pulled from each backend's `/metrics` endpoint:
+Pulled as JSON from each backend's `/metrics?format=json` endpoint:
 
-- `vllm:num_requests_running`: number of currently running requests
-- `vllm:num_requests_waiting`: number of waiting requests
+- `engine_running_requests`: number of currently running requests
+- `engine_waiting_requests`: number of waiting requests
+- `inflight_prompt_token_lengths`: prompt lengths used by SLM Adaptive and
+  Fisher-Jenks SQF
 
 #### 2. Request latency (at completion time)
 
