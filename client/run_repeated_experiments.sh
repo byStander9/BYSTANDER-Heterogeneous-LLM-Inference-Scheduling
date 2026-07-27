@@ -448,55 +448,60 @@ run_experiment() {
     echo ""
     
     # 실험 명령 구성
-    local cmd="$PYTHON_CMD proxy_request_qps.py \
-        --proxy-host $PROXY_HOST \
-        --proxy-port $PROXY_PORT \
-        --algorithm $algo \
-        --qps $qps \
-        --total $total_requests \
-        --start-index $START_INDEX \
-        --max-concurrent $MAX_CONCURRENT \
-        --sharegpt $experiment_dataset \
-        --output $output_file"
+    local cmd=(
+        "$PYTHON_CMD" proxy_request_qps.py
+        --proxy-host "$PROXY_HOST"
+        --proxy-port "$PROXY_PORT"
+        --algorithm "$algo"
+        --qps "$qps"
+        --total "$total_requests"
+        --start-index "$START_INDEX"
+        --max-concurrent "$MAX_CONCURRENT"
+        --dataset "$experiment_dataset"
+        --output "$output_file"
+    )
     
     # WRR 알고리즘(2번)일 때 weights 처리 (수동 지정된 경우에만)
     if [ "$algo" -eq 2 ] && [ -n "$wrr_weights" ]; then
-        cmd="$cmd --weights $wrr_weights"
+        local -a weight_args
+        read -r -a weight_args <<< "$wrr_weights"
+        cmd+=(--weights "${weight_args[@]}")
     fi
     
     # SLM 옵션 추가 (알고리즘 4번일 때)
     if [ "$algo" -eq 4 ]; then
-        cmd="$cmd --slm-activation-threshold $slm_activation"
-        cmd="$cmd --slm-deactivation-threshold $slm_deactivation"
+        cmd+=(--slm-activation-threshold "$slm_activation")
+        cmd+=(--slm-deactivation-threshold "$slm_deactivation")
     fi
     
     # FJ_SQF 옵션 추가 (알고리즘 5번일 때)
     if [ "$algo" -eq 5 ]; then
         if [ -n "$fj_preset" ]; then
-            cmd="$cmd --fj-preset $fj_preset"
+            cmd+=(--fj-preset "$fj_preset")
         else
-            cmd="$cmd --fj-window-size $fj_window_size"
-            cmd="$cmd --fj-min-samples $fj_min_samples"
-            cmd="$cmd --fj-default-threshold $fj_default_threshold"
+            cmd+=(--fj-window-size "$fj_window_size")
+            cmd+=(--fj-min-samples "$fj_min_samples")
+            cmd+=(--fj-default-threshold "$fj_default_threshold")
         fi
-        cmd="$cmd --slm-activation-threshold $slm_activation"
-        cmd="$cmd --slm-deactivation-threshold $slm_deactivation"
+        cmd+=(--slm-activation-threshold "$slm_activation")
+        cmd+=(--slm-deactivation-threshold "$slm_deactivation")
     fi
     
     # 동적 QPS 옵션 추가 (QPS에 '-'가 포함된 경우)
     if [[ "$qps" == *-* ]]; then
-        cmd="$cmd --qps-change-interval $QPS_CHANGE_INTERVAL"
+        cmd+=(--qps-change-interval "$QPS_CHANGE_INTERVAL")
     fi
     
     # K8s 재시작은 Bash 스크립트의 restart_all_parallel()에서 처리
     # Python 스크립트에는 --k8s-restart를 전달하지 않음 (중복 재시작 방지)
     
     echo "실행 명령:"
-    echo "$cmd"
+    printf ' %q' "${cmd[@]}"
+    echo
     echo ""
     
     # 실험 실행
-    eval $cmd
+    "${cmd[@]}"
     
     local exit_code=$?
     

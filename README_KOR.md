@@ -148,6 +148,7 @@ cd client
 pip install -r requirements.txt
 
 # 데이터셋 준비
+pip install datasets                                  # LMSYS 원본 전처리 시에만 필요
 python preprocess_lmsys.py                            # LMSYS (영어 필터 + shuffle)
 # sharegpt_shuffled.json 은 별도로 준비 (리포에 미포함)
 
@@ -162,11 +163,15 @@ python proxy_request_qps.py \
     --proxy-host "$PROXY_HOST" --proxy-port "$PROXY_PORT" \
     --qps 50 --total 4000 \
     --algorithm 5 \
-    --sharegpt ./lmsys_english_shuffled.json \
+    --dataset ./lmsys_english_shuffled.json \
     --output results/run.xlsx
 ```
 
-`--algorithm` 은 위 표의 ID(1~5)를 사용합니다.
+`--algorithm` 은 위 표의 ID(1~5)를 사용합니다. `BYSTANDER_DATASET_DIR`에
+전처리된 파일 디렉터리를 지정하면 `--dataset sharegpt` 또는
+`--dataset lmsys` 별칭도 사용할 수 있습니다. `--dry-run`은 프록시에
+요청하지 않고 데이터셋과 옵션만 검증합니다. 전체 사용법은
+`client/README.md`를 참고하세요. 기존 `--sharegpt` 옵션도 계속 지원합니다.
 
 ## 수집되는 메트릭
 

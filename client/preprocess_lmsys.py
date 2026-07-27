@@ -128,7 +128,7 @@ def main():
     print()
     print(f"사용 예시:")
     print(f"  # proxy_request_qps.py에서 사용")
-    print(f"  python proxy_request_qps.py --sharegpt {args.output} --total 2000")
+    print(f"  python proxy_request_qps.py --dataset {args.output} --total 2000")
     print(f"  # run_repeated_experiments.sh에서 사용")
     print(f'  DATASET="{args.output}"')
 

@@ -1855,7 +1855,7 @@ class ProxyServer:
     
     async def _fetch_metrics(self, server: Dict, quiet: bool = False) -> Optional[Dict]:
         """
-        서버의 /metrics 엔드포인트에서 Prometheus 메트릭 수집
+        서버의 /metrics?format=json 엔드포인트에서 스케줄링 메트릭 수집
         ⭐ 공유 HTTP 클라이언트 사용 (매번 생성하지 않음)
         
         Args:
@@ -1865,7 +1865,8 @@ class ProxyServer:
             return None
         
         _log = logger.debug if quiet else logger.warning
-        metrics_url = f"http://{server['host']}:{server['port']}/metrics"
+        metrics_url = (
+            f"http://{server['host']}:{server['port']}/metrics?format=json")
         
         try:
             client = await self.get_metrics_http_client()
@@ -1875,64 +1876,39 @@ class ProxyServer:
                 _log(f"Failed to fetch metrics from {server['name']}: {response.status_code}")
                 return None
             
-            # Prometheus 텍스트 형식 파싱
-            metrics_text = response.text
-            return self._parse_prometheus_metrics(metrics_text)
+            data = response.json()
+            if data.get('status') != 'success':
+                raise ValueError(
+                    f"metrics endpoint returned status={data.get('status')!r}")
+
+            required_fields = (
+                'engine_running_requests',
+                'engine_waiting_requests',
+                'inflight_prompt_token_lengths',
+            )
+            missing_fields = [
+                field for field in required_fields if field not in data
+            ]
+            if missing_fields:
+                raise ValueError(
+                    f"metrics response missing fields: {', '.join(missing_fields)}")
+
+            inflight_tokens = data['inflight_prompt_token_lengths']
+            if not isinstance(inflight_tokens, list):
+                raise ValueError(
+                    "inflight_prompt_token_lengths must be a list")
+
+            return {
+                'num_requests_running': int(float(
+                    data['engine_running_requests'])),
+                'num_requests_waiting': int(float(
+                    data['engine_waiting_requests'])),
+                'inflight_prompt_token_lengths': inflight_tokens,
+            }
                 
         except Exception as e:
             _log(f"Error fetching metrics from {server['name']}: {str(e)}")
             return None
-
-    
-    async def _fetch_api_server_metrics(self, server: Dict) -> Optional[Dict]:
-        """
-        서버의 /api_server_metrics 엔드포인트에서 inflight tokens 수집
-        SLM Adaptive Routing에 사용
-        ⭐ 공유 HTTP 클라이언트 사용 (매번 생성하지 않음)
-        """
-        if self.routing_algorithm not in ("slm_adaptive", "fisher_jenks_sqf"):
-            return None
-        
-        api_metrics_url = f"http://{server['host']}:{server['port']}/api_server_metrics"
-        
-        try:
-            client = await self.get_metrics_http_client()
-            response = await client.get(api_metrics_url)
-            
-            if response.status_code != 200:
-                logger.debug(f"Failed to fetch API metrics from {server['name']}: {response.status_code}")
-                return None
-            
-            # JSON 형식으로 반환
-            data = response.json()
-            return data
-                
-        except Exception as e:
-            logger.debug(f"Error fetching API metrics from {server['name']}: {str(e)}")
-            return None
-    
-    def _parse_prometheus_metrics(self, metrics_text: str) -> Dict:
-        """
-        Prometheus 텍스트 형식에서 num_requests_running과 num_requests_waiting 추출
-        """
-        metrics = {
-            'num_requests_running': 0,
-            'num_requests_waiting': 0
-        }
-        
-        # vllm:num_requests_running 찾기
-        running_pattern = r'vllm:num_requests_running(?:\{[^}]*\})?\s+(\d+(?:\.\d+)?)'
-        running_match = re.search(running_pattern, metrics_text)
-        if running_match:
-            metrics['num_requests_running'] = int(float(running_match.group(1)))
-        
-        # vllm:num_requests_waiting 찾기
-        waiting_pattern = r'vllm:num_requests_waiting(?:\{[^}]*\})?\s+(\d+(?:\.\d+)?)'
-        waiting_match = re.search(waiting_pattern, metrics_text)
-        if waiting_match:
-            metrics['num_requests_waiting'] = int(float(waiting_match.group(1)))
-        
-        return metrics
     
     async def _collect_all_metrics_direct(self, background: bool = False) -> Dict[str, Dict]:
         """
@@ -1973,7 +1949,15 @@ class ProxyServer:
                 fail_count += 1
                 fail_servers.append(server['name'])
             else:
+                inflight_tokens = result.pop(
+                    'inflight_prompt_token_lengths', [])
                 all_metrics[server['name']] = result
+                if (self.routing_algorithm in
+                        ("slm_adaptive", "fisher_jenks_sqf")
+                        and server['name'] in self.inflight_tokens):
+                    self.inflight_tokens[server['name']].clear()
+                    self.inflight_tokens[server['name']].extend(
+                        inflight_tokens)
         
         # 실패 요약 로그 (100회마다 1회만 출력하여 로그 폭주 방지)
         if fail_count > 0:
@@ -1983,24 +1967,6 @@ class ProxyServer:
             if self._metrics_fail_log_count <= 3 or self._metrics_fail_log_count % 100 == 0:
                 logger.warning(f"[METRICS] {fail_count}/{len(self.backend_servers)} servers failed "
                              f"(count={self._metrics_fail_log_count}): {', '.join(fail_servers)}")
-        
-        # SLM Adaptive / Fisher-Jenks: API 서버 메트릭에서 inflight tokens 수집
-        if self.routing_algorithm in ("slm_adaptive", "fisher_jenks_sqf"):
-            api_tasks = []
-            for server in self.backend_servers:
-                api_tasks.append(self._fetch_api_server_metrics(server))
-            
-            api_results = await asyncio.gather(*api_tasks, return_exceptions=True)
-            
-            for server, api_result in zip(self.backend_servers, api_results):
-                if isinstance(api_result, dict) and "inflight_prompt_token_lengths" in api_result:
-                    inflight_tokens = api_result.get("inflight_prompt_token_lengths", [])
-                    
-                    # 서버별 inflight tokens 업데이트
-                    self.inflight_tokens[server['name']].clear()
-                    self.inflight_tokens[server['name']].extend(inflight_tokens)
-                    
-                    logger.debug(f"Updated inflight tokens for {server['name']}: {len(inflight_tokens)} requests")
         
         return all_metrics
     
@@ -4392,4 +4358,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
