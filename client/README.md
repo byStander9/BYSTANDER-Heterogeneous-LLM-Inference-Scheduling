@@ -73,6 +73,20 @@ Useful environment variables:
 - `BYSTANDER_MODEL`
 - `BYSTANDER_OUTPUT`
 
+## Start an experiment with clean backend state
+
+The client talks only to the proxy, so reset custom vLLM3 state directly on
+each backend before a clean experiment run:
+
+```bash
+curl -X POST "http://<BACKEND_HOST>:<BACKEND_PORT>/reset_custom_metrics"
+```
+
+Call the endpoint only after previous inference requests have finished. It
+clears BYSTANDER's custom in-memory request data without restarting the
+container. It does not replace the proxy's `/finalize`, which saves and resets
+the proxy-side experiment log.
+
 ## Repeated paper experiments
 
 `run_repeated_experiments.sh` retains the original experiment matrices,

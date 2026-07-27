@@ -23,7 +23,7 @@ A Korean version of this document is available at
 │  Client            │──────▶│  - OpenAI-compatible API     │──────▶│  RTX3090 × N              │
 │  (load generator)  │  HTTP │  - Routing algorithms        │       │  RTX4090 × M              │
 │                    │       │  - SLM-based latency predict │       │  RTX5090 × K              │
-│  proxy_request_qps │       │  - Metrics collection        │       │  (customized vLLM image)  │
+│  proxy_request_qps │       │  - Metrics collection        │       │  (customized vLLM3 image) │
 └────────────────────┘       └──────────────────────────────┘       └───────────────────────────┘
           │                             │                                       │
           │  QPS / algorithm / preset   │  collects running, waiting,           │  exposes /metrics
@@ -40,7 +40,7 @@ A Korean version of this document is available at
   Shortest Queue First, SLM Adaptive, Fisher-Jenks SQF) and runs SLM
   inference to estimate the expected e2e latency per GPU type before
   dispatching each request.
-- **Backend nodes** — a customized vLLM image running inside containers on
+- **Backend nodes** — the customized vLLM3 image running inside containers on
   the GPU nodes. Standard Prometheus scrapes use `/metrics`, while the proxy
   uses `/metrics?format=json` for running, waiting, and in-flight prompt-token
   length data in one request.
@@ -71,6 +71,11 @@ A Korean version of this document is available at
 ├── README.md                                 # This document
 └── README_KOR.md                             # Korean version
 ```
+
+The main `proxy/proxy_server.py` uses the unified vLLM3 metrics API described
+below. `proxy/motivation/proxy_server_motivation.py` is retained as the
+original paper-experiment variant and still uses the legacy vLLM2
+`/metrics` + `/api_server_metrics` pair.
 
 ## Routing Algorithms
 
@@ -132,7 +137,7 @@ export VASTAI_INSTANCE_IDS="INSTANCE_ID_1 INSTANCE_ID_2 ..."   # space-separated
 
 ### 1. Bring Up the Backends
 
-On each GPU node, start a container based on the customized vLLM image
+On each GPU node, start a container based on the customized vLLM3 image
 (not included in this repository). Every backend must expose the following
 endpoints:
 
@@ -145,6 +150,12 @@ endpoints:
   Fisher-Jenks SQF.
 - `POST /reset_custom_metrics` — clears BYSTANDER's custom in-memory request
   state between experiments. Call only when no inference requests are active.
+
+`/metrics` without a query parameter remains Prometheus text, so existing
+Prometheus scrapes continue to work. If one JSON collection attempt fails, the
+proxy records the backend's running/waiting values as unavailable and keeps
+the last successfully collected in-flight token list; the next polling cycle
+continues normally.
 
 ### 2. Start the Proxy Server
 

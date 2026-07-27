@@ -34,6 +34,20 @@ BACKEND_SERVERS = [
 ]
 ```
 
+메인 프록시는 커스터마이징된 vLLM3 백엔드 API를 사용합니다.
+
+- `GET /metrics`는 표준 Prometheus 텍스트를 반환합니다.
+- `GET /metrics?format=json`은 `engine_running_requests`,
+  `engine_waiting_requests`, `inflight_prompt_token_lengths`를 한 응답으로
+  반환합니다.
+- `POST /reset_custom_metrics`는 BYSTANDER가 추가한 메모리 내 요청 상태를
+  초기화합니다. 깨끗한 실험 상태가 필요할 때 요청 처리가 끝난 각
+  백엔드에 직접 호출합니다.
+
+논문의 motivation 실험 재현을 위해 보존된
+`motivation/proxy_server_motivation.py`는 기존 vLLM2의 `/metrics`와
+`/api_server_metrics` 엔드포인트를 각각 사용합니다.
+
 ## 설치
 
 ```bash
@@ -230,6 +244,25 @@ async def run_experiment():
 - `engine_waiting_requests`: 대기 중인 요청 수
 - `inflight_prompt_token_lengths`: SLM Adaptive와 Fisher-Jenks SQF가
   사용하는 프롬프트 길이 목록
+
+수집에 실패하면 해당 백엔드의 running/waiting 값은 수집 실패(`-1`)로
+표시합니다. 마지막으로 정상 수집한 inflight token 목록은 삭제하지 않고
+유지하며, 다음 polling 주기에 다시 수집합니다. Prometheus는 이와 별개로
+쿼리 파라미터 없는 `/metrics`를 계속 수집할 수 있습니다.
+
+커스텀 백엔드 상태를 의도적으로 비우려면 추론 요청이 모두 끝난 뒤 다음과
+같이 호출합니다.
+
+```bash
+curl -X POST "http://<BACKEND_HOST>:<BACKEND_PORT>/reset_custom_metrics"
+```
+
+JSON 응답의 `cleared`에는 `inflight_prompt_token_lengths`,
+`pre_tokenization_expected_prompt_token_lengths`,
+`api_server_processing_requests`에서 제거한 항목 수가 반환됩니다.
+
+이 백엔드 초기화는 프록시의 `/finalize`와 별개입니다. `/finalize`는
+프록시 측 실험 결과 파일과 요청 카운터를 저장하고 초기화합니다.
 
 #### 2. 요청 레이턴시 (완료 시점)
 

@@ -19,11 +19,11 @@
 │  Client            │──────▶│  - OpenAI-compatible API     │──────▶│  RTX3090 × N              │
 │  (load generator)  │  HTTP │  - Routing algorithms        │       │  RTX4090 × M              │
 │                    │       │  - SLM-based latency predict │       │  RTX5090 × K              │
-│  proxy_request_qps │       │  - Metrics collection        │       │  (customized vLLM image)  │
+│  proxy_request_qps │       │  - Metrics collection        │       │  (customized vLLM3 image) │
 └────────────────────┘       └──────────────────────────────┘       └───────────────────────────┘
           │                             │                                       │
-          │  QPS / algorithm / preset   │  collects running, waiting,           │  exposes /metrics,
-          │  dataset, total_requests    │  inflight tokens per backend          │  /api_server_metrics
+          │  QPS / algorithm / preset   │  collects running, waiting,           │  exposes /metrics
+          │  dataset, total_requests    │  inflight tokens per backend          │  (Prometheus + JSON)
           └────────────────────────────▶                                        │
                                         ◀───── e2e latency, ttft ─────────────  │
 ```
@@ -34,9 +34,10 @@
   Round Robin, Weighted Round Robin, Shortest Queue First, SLM Adaptive,
   Fisher-Jenks SQF 등 다양한 라우팅 알고리즘을 선택 가능하며, SLM 추론을 통해
   각 GPU 종류별 예상 e2e latency를 산출해 최적 백엔드를 결정합니다.
-- **Backend nodes** — 커스터마이징된 vLLM 기반 이미지가 컨테이너로 동작.
-  표준 `/metrics` 외에 inflight prompt token 길이 분포를 제공하는
-  `/api_server_metrics` 엔드포인트를 노출합니다.
+- **Backend nodes** — 커스터마이징된 vLLM3 이미지가 컨테이너로 동작.
+  Prometheus는 표준 `/metrics`를 사용하고, 프록시는
+  `/metrics?format=json`을 한 번 호출하여 running, waiting 및 inflight
+  prompt token 길이 정보를 함께 수집합니다.
   (컨테이너 이미지와 SLM 모델 파일은 본 레포 외부에서 별도 제공)
 
 ## 디렉토리 구조
@@ -63,6 +64,11 @@
 ├── README.md                                 # 영문판 (GitHub 기본 노출)
 └── README_KOR.md                             # 본 문서 (한글판)
 ```
+
+메인 `proxy/proxy_server.py`는 아래 설명된 vLLM3 통합 메트릭 API를
+사용합니다. `proxy/motivation/proxy_server_motivation.py`는 논문 당시의
+실험용 변형을 그대로 보존하므로 기존 vLLM2의 `/metrics`와
+`/api_server_metrics`를 각각 호출합니다.
 
 ## 라우팅 알고리즘
 
@@ -121,13 +127,22 @@ export VASTAI_INSTANCE_IDS="INSTANCE_ID_1 INSTANCE_ID_2 ..."   # 공백 구분
 
 ### 1. Backend 준비
 
-본 레포에 포함되지 않은 커스터마이징 vLLM 이미지로 각 GPU 노드에서 컨테이너를
+본 레포에 포함되지 않은 커스터마이징 vLLM3 이미지로 각 GPU 노드에서 컨테이너를
 기동합니다. 각 백엔드는 다음 엔드포인트를 노출해야 합니다.
 
 - `POST /v1/chat/completions` — OpenAI 호환 (streaming / non-streaming)
-- `GET /metrics` — Prometheus 형식, 최소 `vllm:num_requests_running`, `vllm:num_requests_waiting`
-- `GET /api_server_metrics` — JSON, `inflight_prompt_token_lengths` 포함
+- `GET /metrics` — 표준 Prometheus 형식
+- `GET /metrics?format=json` — `engine_running_requests`,
+  `engine_waiting_requests`, `inflight_prompt_token_lengths`를 포함하는 JSON
   (SLM Adaptive / Fisher-Jenks SQF 사용 시 필요)
+- `POST /reset_custom_metrics` — 실험 사이에 BYSTANDER가 추가한 메모리 내
+  요청 상태를 초기화. 진행 중인 추론 요청이 없을 때만 호출
+
+쿼리 파라미터가 없는 `/metrics`는 계속 Prometheus 텍스트를 반환하므로
+기존 Prometheus 수집에는 영향이 없습니다. JSON 메트릭 수집이 한 번
+실패하면 프록시는 해당 백엔드의 running/waiting 값을 수집 실패로 표시하고,
+마지막으로 정상 수집한 inflight token 목록은 유지한 채 다음 주기에 계속
+수집합니다.
 
 ### 2. Proxy server 기동
 
