@@ -34,6 +34,20 @@ BACKEND_SERVERS = [
 ]
 ```
 
+The main proxy expects the customized vLLM3 backend API:
+
+- `GET /metrics` returns standard Prometheus text.
+- `GET /metrics?format=json` returns `engine_running_requests`,
+  `engine_waiting_requests`, and `inflight_prompt_token_lengths` in one
+  response.
+- `POST /reset_custom_metrics` clears BYSTANDER's custom in-memory request
+  state. Call it directly on each idle backend between experiments when a
+  clean state is required.
+
+The original `motivation/proxy_server_motivation.py` is preserved for
+reproducing the paper's motivation experiments and still expects the legacy
+vLLM2 `/metrics` and `/api_server_metrics` endpoints.
+
 ## Installation
 
 ```bash
@@ -235,6 +249,26 @@ Pulled as JSON from each backend's `/metrics?format=json` endpoint:
 - `engine_waiting_requests`: number of waiting requests
 - `inflight_prompt_token_lengths`: prompt lengths used by SLM Adaptive and
   Fisher-Jenks SQF
+
+If collection fails, running/waiting are marked unavailable (`-1`) for that
+backend. Its last successfully collected in-flight token list is retained
+instead of being cleared, and collection continues on the next polling cycle.
+Prometheus can independently continue scraping plain `/metrics`.
+
+To clear the custom backend state intentionally, wait until inference is idle
+and call:
+
+```bash
+curl -X POST "http://<BACKEND_HOST>:<BACKEND_PORT>/reset_custom_metrics"
+```
+
+The JSON response reports how many entries were removed from
+`inflight_prompt_token_lengths`,
+`pre_tokenization_expected_prompt_token_lengths`, and
+`api_server_processing_requests`.
+
+This backend reset is separate from the proxy's `/finalize`: `/finalize`
+saves and resets proxy-side experiment files and counters.
 
 #### 2. Request latency (at completion time)
 
