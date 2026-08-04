@@ -314,7 +314,8 @@ async def send_request(item: PreparedRequest, endpoint_index: int,
                        tracker: StateTracker, semaphore: asyncio.Semaphore,
                        model: str, max_tokens: int, temperature: float,
                        scheduled_elapsed_s: float, experiment_started: float,
-                       mode: str, qps: float) -> dict[str, Any]:
+                       mode: str, qps: float,
+                       proxy_base_url: str | None = None) -> dict[str, Any]:
     async with semaphore:
         state = await tracker.snapshot_and_register(
             endpoint_index, item.request_id, item.prompt_tokens)
@@ -324,6 +325,8 @@ async def send_request(item: PreparedRequest, endpoint_index: int,
         http_status = 0
         completion_tokens = 0
         usage_prompt_tokens = 0
+        routed_endpoint_index = -1
+        routed_endpoint = ""
         error = ""
         try:
             payload = {
@@ -335,9 +338,15 @@ async def send_request(item: PreparedRequest, endpoint_index: int,
                 "stream_options": {"include_usage": True},
             }
             timeout = httpx.Timeout(900.0, connect=30.0, read=900.0, write=30.0)
-            async with client.stream("POST", f"{endpoint}/v1/chat/completions",
-                                     json=payload, timeout=timeout) as response:
+            request_base = proxy_base_url.rstrip("/") if proxy_base_url else endpoint
+            async with client.stream(
+                    "POST", f"{request_base}/v1/chat/completions", json=payload,
+                    headers={"X-Bystander-Request-ID": str(item.request_id)},
+                    timeout=timeout) as response:
                 http_status = response.status_code
+                routed_endpoint_index = int(
+                    response.headers.get("X-Bystander-Endpoint-Index", -1))
+                routed_endpoint = response.headers.get("X-Bystander-Endpoint", "")
                 if http_status != 200:
                     body = (await response.aread()).decode("utf-8", errors="replace")
                     error = f"HTTP {http_status}: {body[:500]}"
@@ -377,6 +386,11 @@ async def send_request(item: PreparedRequest, endpoint_index: int,
             "target_qps": qps,
             "endpoint_index": endpoint_index,
             "endpoint": endpoint,
+            "proxy_base_url": proxy_base_url or "",
+            "routed_endpoint_index": routed_endpoint_index,
+            "routed_endpoint": routed_endpoint,
+            "rr_route_verified": int(
+                not proxy_base_url or routed_endpoint_index == endpoint_index),
             "scheduled_elapsed_s": scheduled_elapsed_s,
             "actual_submit_elapsed_s": submitted_perf - experiment_started,
             "arrival_lag_ms": (submitted_perf - experiment_started - scheduled_elapsed_s) * 1000,
@@ -554,7 +568,7 @@ async def run(args: argparse.Namespace) -> None:
         tasks.append(asyncio.create_task(send_request(
             item, endpoint_index, endpoints[endpoint_index], clients[endpoint_index],
             tracker, semaphore, args.model, args.max_tokens, args.temperature,
-            scheduled, started, args.mode, args.qps)))
+            scheduled, started, args.mode, args.qps, args.proxy_base_url)))
         if item.request_id and item.request_id % 100 == 0:
             done = sum(task.done() for task in tasks)
             print(f"[{now_iso()}] submitted={item.request_id + 1}/{len(prepared)} completed~={done}", flush=True)
@@ -590,6 +604,7 @@ async def run(args: argparse.Namespace) -> None:
         "experiment_completed_at": now_iso(),
         "mode": args.mode,
         "endpoints": endpoints,
+        "proxy_base_url": args.proxy_base_url or "",
         "dataset": str(Path(args.dataset).resolve()),
         "start_index": args.start_index,
         "target_qps": args.qps,
@@ -602,6 +617,8 @@ async def run(args: argparse.Namespace) -> None:
         "state_measurement_note": (
             "running/waiting/kv_cache are cached vLLM Prometheus gauges; inflight token "
             "lengths are tracked by this exclusive experiment client from /tokenize counts"),
+        "rr_proxy_route_mismatches": sum(
+            1 for row in rows if args.proxy_base_url and not row["rr_route_verified"]),
         **build_client_summary(rows, duration_s),
     }
     (output_dir / "experiment_summary.json").write_text(
@@ -613,6 +630,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("rr", "single"), required=True)
     parser.add_argument("--endpoints", nargs="+", required=True)
+    parser.add_argument("--proxy-base-url",
+                        help="actual RR proxy base URL; endpoint metrics are still sampled directly")
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--total", type=int, default=2000)

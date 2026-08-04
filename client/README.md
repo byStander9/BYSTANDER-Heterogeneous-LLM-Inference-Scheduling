@@ -14,6 +14,37 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## KT Cloud ATOM+ report RR proxy
+
+Start the auditable proxy. Its JSONL log starts with the proxy configuration
+and then records every forwarded request as endpoint 0, 1, 0, 1 so the routing
+sequence can be captured for the report.
+
+```powershell
+python client/kt_rr_proxy.py `
+  --endpoints https://qwen3-4b-svc-1.proxy.ainexus.ktcloud.com `
+              https://qwen3-4b-svc-2.proxy.ainexus.ktcloud.com `
+  --port 18001 `
+  --log-file results/kt_atom_partition_recompiled_20260804/proxy_forwarding.jsonl
+```
+
+Run the ShareGPT experiment through that proxy while sampling each backend's
+Prometheus metrics directly.
+
+```powershell
+python client/kt_atom_experiment.py `
+  --mode rr `
+  --endpoints https://qwen3-4b-svc-1.proxy.ainexus.ktcloud.com `
+              https://qwen3-4b-svc-2.proxy.ainexus.ktcloud.com `
+  --proxy-base-url http://127.0.0.1:18001 `
+  --dataset C:/path/to/sharegpt_shuffled.json `
+  --qps 1.0 --total 2000 --max-model-len 8192 `
+  --output-dir results/kt_atom_partition_recompiled_20260804/rr_qps1_n2000
+```
+
+`client_requests.csv` stores both the planned `endpoint_index` and the proxy's
+returned `routed_endpoint_index`. `rr_route_verified=1` proves they matched.
+
 ## Dataset selection
 
 Both ShareGPT and LMSYS JSON arrays or JSONL files are accepted:
