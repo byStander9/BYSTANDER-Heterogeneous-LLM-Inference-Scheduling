@@ -11,7 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from proxy_request_qps import (RequestResult,  # noqa: E402
-                               build_argument_parser, run_experiment,
+                               build_argument_parser,
+                               build_chat_completions_url, run_experiment,
                                save_results)
 
 
@@ -37,6 +38,24 @@ class ClientCliTest(unittest.TestCase):
                 parser.parse_args(["--total", "0"])
             with self.assertRaises(SystemExit):
                 parser.parse_args(["--max-concurrent", "-1"])
+
+    def test_base_url_builds_https_chat_completions_url(self):
+        parser = build_argument_parser()
+        args = parser.parse_args([
+            "--base-url",
+            "https://qwen3-4b.proxy.ainexus.ktcloud.com/",
+        ])
+
+        self.assertEqual(
+            build_chat_completions_url(args),
+            "https://qwen3-4b.proxy.ainexus.ktcloud.com/v1/chat/completions",
+        )
+
+    def test_accepts_positive_max_tokens(self):
+        parser = build_argument_parser()
+        args = parser.parse_args(["--max-tokens", "256"])
+
+        self.assertEqual(args.max_tokens, 256)
 
     def test_dry_run_validates_dataset_without_contacting_proxy(self):
         record = {

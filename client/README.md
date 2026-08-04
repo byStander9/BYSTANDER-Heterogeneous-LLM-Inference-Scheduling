@@ -61,6 +61,33 @@ python proxy_request_qps.py \
   --output results/lmsys_fj.xlsx
 ```
 
+To send the same scheduled streaming workload directly to an OpenAI-compatible
+HTTPS endpoint, provide its base URL. Direct endpoint mode does not call the
+custom proxy's `/finalize` API:
+
+```bash
+python proxy_request_qps.py \
+  --base-url https://qwen3-4b.proxy.ainexus.ktcloud.com/ \
+  --dataset /data/sharegpt.json \
+  --model Qwen3-4B \
+  --qps 4 --max-concurrent 8 --total 20 --max-tokens 256 \
+  --output results/qwen3-4b.csv
+```
+
+Collect each vLLM replica's Prometheus metrics through a load-balanced
+endpoint while the workload runs:
+
+```bash
+python collect_vllm_metrics.py \
+  --url https://qwen3-4b.proxy.ainexus.ktcloud.com/metrics \
+  --interval 0.25 --duration 180 \
+  --output results/qwen3-4b-metrics.csv
+```
+
+The collector identifies replicas by their stable
+`process_start_time_seconds` value and records KV-cache usage, running and
+waiting request counts, token counters, successful requests, and preemptions.
+
 For a dynamic QPS range, use `--qps 45-75`. Add `--seed 42` only when a
 reproducible sequence of dynamic QPS values is desired; omitting it preserves
 the original non-deterministic behavior.
@@ -68,6 +95,7 @@ the original non-deterministic behavior.
 Useful environment variables:
 
 - `PROXY_HOST`, `PROXY_PORT`
+- `BYSTANDER_BASE_URL`
 - `BYSTANDER_DATASET` (`sharegpt`, `lmsys`, or a path)
 - `BYSTANDER_DATASET_DIR`
 - `BYSTANDER_MODEL`

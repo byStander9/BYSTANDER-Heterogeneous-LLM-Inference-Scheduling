@@ -113,6 +113,7 @@ DATASET_ALIASES = {
 
 DEFAULT_CONFIG = {
     "dataset": os.getenv("BYSTANDER_DATASET", "sharegpt"),
+    "base_url": os.getenv("BYSTANDER_BASE_URL"),
     "proxy_host": os.getenv("PROXY_HOST", "127.0.0.1"),
     "proxy_port": int(os.getenv("PROXY_PORT", "8012")),
     "qps": 10,
@@ -122,6 +123,7 @@ DEFAULT_CONFIG = {
     "model": os.getenv("BYSTANDER_MODEL",
                        "Meta-Llama-3.1-8B-Instruct-AWQ-INT4"),
     "temperature": 1.0,
+    "max_tokens": None,
     "max_turns": 3,
     "output": os.getenv("BYSTANDER_OUTPUT",
                         "results/proxy_experiment_results.xlsx"),
@@ -193,6 +195,12 @@ def positive_float(value: str) -> float:
     if parsed <= 0:
         raise argparse.ArgumentTypeError("0보다 큰 숫자여야 합니다.")
     return parsed
+
+
+def build_chat_completions_url(args) -> str:
+    if args.base_url:
+        return f"{args.base_url.rstrip('/')}/v1/chat/completions"
+    return f"http://{args.proxy_host}:{args.proxy_port}/v1/chat/completions"
 
 def get_next_qps(min_qps: float, max_qps: float) -> float:
     """
@@ -619,6 +627,7 @@ async def send_streaming_request(
     messages: List[Dict[str, str]],
     model: str,
     temperature: float,
+    max_tokens: Optional[int],
     semaphore: asyncio.Semaphore,
     timeout_seconds: float = 600.0,
 ) -> RequestResult:
@@ -657,6 +666,8 @@ async def send_streaming_request(
         "top_p": 0.95,
         "presence_penalty": 0.1,
     }
+    if max_tokens is not None:
+        request_payload["max_tokens"] = max_tokens
     
     try:
         async with semaphore:
@@ -690,7 +701,7 @@ async def send_streaming_request(
                                 delta = choice.get("delta", {})
                                 
                                 # 첫 토큰 시간 측정 (TTFT)
-                                if ttft_time is None and (delta.get("content") or delta.get("role") == "assistant"):
+                                if ttft_time is None and delta.get("content"):
                                     ttft_time = time.perf_counter()
                                 
                                 # 토큰 수 계산
@@ -845,7 +856,10 @@ async def run_experiment(args):
     
     print(f"\n{'='*60}")
     print(f"실험 시작 시간: {experiment_start_str}")
-    print(f"프록시 서버: {args.proxy_host}:{args.proxy_port}")
+    if args.base_url:
+        print(f"OpenAI 호환 서버: {args.base_url}")
+    else:
+        print(f"프록시 서버: {args.proxy_host}:{args.proxy_port}")
     if args.algorithm:
         print(f"라우팅 알고리즘: {ALGORITHM_MAP[args.algorithm]} (#{args.algorithm})")
     
@@ -868,7 +882,7 @@ async def run_experiment(args):
     signal.signal(signal.SIGINT, signal_handler)
     
     # 프록시 URL 생성
-    proxy_url = f"http://{args.proxy_host}:{args.proxy_port}/v1/chat/completions"
+    proxy_url = build_chat_completions_url(args)
     
     actual_total = len(dataset)
     print(f"전송할 요청 수: {actual_total}개\n")
@@ -1000,6 +1014,7 @@ async def run_experiment(args):
                             messages=messages,
                             model=args.model,
                             temperature=args.temperature,
+                            max_tokens=args.max_tokens,
                             semaphore=semaphore,
                             timeout_seconds=getattr(args, "client_timeout",
                                                     600.0),
@@ -1063,14 +1078,15 @@ async def run_experiment(args):
         # QPS 정보 준비 (범위인 경우 "min-max", 고정인 경우 숫자)
         qps_info = f"{min_qps}-{max_qps}" if is_qps_range else str(min_qps)
         
-        await send_finalize_signal(
-            proxy_host=args.proxy_host,
-            proxy_port=args.proxy_port,
-            client_id=client_id,
-            experiment_name=experiment_name,
-            total_requests=len(results),
-            qps=qps_info
-        )
+        if not args.base_url:
+            await send_finalize_signal(
+                proxy_host=args.proxy_host,
+                proxy_port=args.proxy_port,
+                client_id=client_id,
+                experiment_name=experiment_name,
+                total_requests=len(results),
+                qps=qps_info
+            )
         
         # 쿠버네티스 데몬셋 재시작 (옵션)
         if hasattr(args, 'k8s_restart') and args.k8s_restart and args.k8s_daemonsets:
@@ -1300,6 +1316,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     
     # 프록시 서버 설정
+    parser.add_argument("--base-url", default=DEFAULT_CONFIG["base_url"],
+                       help="OpenAI 호환 API base URL (지정 시 proxy host/port와 /finalize를 사용하지 않음)")
     parser.add_argument("--proxy-host", default=DEFAULT_CONFIG["proxy_host"],
                        help=f"프록시 서버 호스트 (기본값: {DEFAULT_CONFIG['proxy_host']})")
     parser.add_argument("--proxy-port", type=positive_int, default=DEFAULT_CONFIG["proxy_port"],
@@ -1351,6 +1369,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
                        help="모델 이름")
     parser.add_argument("--temperature", type=float, default=DEFAULT_CONFIG["temperature"],
                        help=f"생성 온도 (기본값: {DEFAULT_CONFIG['temperature']})")
+    parser.add_argument("--max-tokens", type=positive_int,
+                       default=DEFAULT_CONFIG["max_tokens"],
+                       help="요청당 최대 생성 토큰 수 (미지정 시 서버 기본값)")
     parser.add_argument("--max-turns", type=positive_int, default=DEFAULT_CONFIG["max_turns"],
                        help=f"최대 대화 턴 수 (기본값: {DEFAULT_CONFIG['max_turns']})")
     
