@@ -258,6 +258,21 @@ async def fetch_metrics(client: httpx.AsyncClient, endpoint: str) -> tuple[str, 
     return response.text, parse_prometheus(response.text)
 
 
+async def fetch_metrics_with_retry(
+        client: httpx.AsyncClient, endpoint: str, attempts: int = 3,
+        delay_s: float = 1.0) -> tuple[str, dict[str, Any]]:
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return await fetch_metrics(client, endpoint)
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                await asyncio.sleep(delay_s)
+    assert last_error is not None
+    raise last_error
+
+
 async def metrics_sampler(clients: list[httpx.AsyncClient], tracker: StateTracker,
                           interval: float, rows: list[dict[str, Any]],
                           stop: asyncio.Event, started: float) -> None:
@@ -430,6 +445,21 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def write_progress(path: Path, rows: list[dict[str, Any]], total: int,
+                   started: float) -> None:
+    successful = sum(int(row.get("success", 0)) for row in rows)
+    progress = {
+        "updated_at": now_iso(),
+        "completed": len(rows),
+        "total": total,
+        "successful": successful,
+        "failed": len(rows) - successful,
+        "elapsed_s": time.perf_counter() - started,
+    }
+    path.write_text(json.dumps(progress, indent=2, ensure_ascii=False),
+                    encoding="utf-8")
+
+
 def build_internal_rows(starts: list[dict[str, Any]], ends: list[dict[str, Any]],
                         endpoints: list[str]) -> list[dict[str, Any]]:
     rows = []
@@ -558,6 +588,28 @@ async def run(args: argparse.Namespace) -> None:
     rng = random.Random(args.seed)
     semaphore = asyncio.Semaphore(args.max_concurrent)
     tasks = []
+    checkpoint_rows: list[dict[str, Any]] = []
+
+    def save_completed(task: asyncio.Task) -> None:
+        try:
+            checkpoint_rows.append(task.result())
+        except Exception as exc:
+            checkpoint_rows.append({
+                "request_id": -1,
+                "success": 0,
+                "error": f"unhandled request task error: {exc}",
+            })
+        completed = len(checkpoint_rows)
+        if completed % args.checkpoint_every == 0 or completed == len(prepared):
+            ordered = sorted(checkpoint_rows,
+                             key=lambda row: row.get("request_id", -1))
+            write_csv(output_dir / "client_requests_checkpoint.csv", ordered)
+            write_csv(output_dir / "vllm_timeseries_checkpoint.csv", metrics_rows)
+            write_progress(output_dir / "progress.json", checkpoint_rows,
+                           len(prepared), started)
+            print(f"[{now_iso()}] CHECKPOINT completed={completed}/{len(prepared)}",
+                  flush=True)
+
     scheduled = 0.0
     for item in prepared:
         scheduled += rng.expovariate(args.qps)
@@ -565,10 +617,12 @@ async def run(args: argparse.Namespace) -> None:
         if delay > 0:
             await asyncio.sleep(delay)
         endpoint_index = item.request_id % len(endpoints) if args.mode == "rr" else 0
-        tasks.append(asyncio.create_task(send_request(
+        task = asyncio.create_task(send_request(
             item, endpoint_index, endpoints[endpoint_index], clients[endpoint_index],
             tracker, semaphore, args.model, args.max_tokens, args.temperature,
-            scheduled, started, args.mode, args.qps, args.proxy_base_url)))
+            scheduled, started, args.mode, args.qps, args.proxy_base_url))
+        task.add_done_callback(save_completed)
+        tasks.append(task)
         if item.request_id and item.request_id % 100 == 0:
             done = sum(task.done() for task in tasks)
             print(f"[{now_iso()}] submitted={item.request_id + 1}/{len(prepared)} completed~={done}", flush=True)
@@ -580,8 +634,16 @@ async def run(args: argparse.Namespace) -> None:
 
     ends_text: list[str] = []
     ends: list[dict[str, Any]] = []
-    for client, endpoint in zip(clients, endpoints):
-        raw, parsed = await fetch_metrics(client, endpoint)
+    final_metrics_errors: list[str] = []
+    for index, (client, endpoint) in enumerate(zip(clients, endpoints)):
+        try:
+            raw, parsed = await fetch_metrics_with_retry(client, endpoint)
+            final_metrics_errors.append("")
+        except Exception as exc:
+            error = str(exc)
+            raw = f"# Final metrics unavailable: {error}\n"
+            parsed = starts[index]
+            final_metrics_errors.append(error)
         ends_text.append(raw)
         ends.append(parsed)
     for client in clients:
@@ -612,6 +674,8 @@ async def run(args: argparse.Namespace) -> None:
         "max_turns": args.max_turns,
         "seed": args.seed,
         "metrics_interval_s": args.metrics_interval,
+        "checkpoint_every": args.checkpoint_every,
+        "final_metrics_errors": final_metrics_errors,
         "tokenize_fallback_count": sum(bool(item.tokenize_error) for item in prepared),
         "oversized_prompts_skipped": oversized_skipped,
         "state_measurement_note": (
@@ -643,6 +707,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-concurrent", type=int, default=500)
     parser.add_argument("--metrics-interval", type=float, default=0.2)
+    parser.add_argument("--checkpoint-every", type=int, default=25)
     parser.add_argument("--tokenize-concurrency", type=int, default=32)
     parser.add_argument("--seed", type=int, default=20260803)
     parser.add_argument("--output-dir", type=Path, required=True)

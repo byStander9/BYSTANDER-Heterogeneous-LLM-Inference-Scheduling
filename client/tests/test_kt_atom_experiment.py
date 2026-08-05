@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kt_atom_experiment import (PreparedRequest, histogram_delta,  # noqa: E402
                                 histogram_quantile, parse_prometheus,
                                 percentile, select_compatible_requests,
-                                state_features)
+                                state_features, write_progress)
 
 
 class KtAtomExperimentTest(unittest.TestCase):
@@ -65,6 +65,22 @@ vllm:e2e_request_latency_seconds_count{model_name="q"} 9
         self.assertEqual([item.dataset_index for item in selected], [10, 12])
         self.assertEqual([item.request_id for item in selected], [0, 1])
         self.assertEqual(skipped, 1)
+
+    def test_writes_incremental_progress(self):
+        import json
+        import tempfile
+        import time
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "progress.json"
+            write_progress(path, [{"success": 1}, {"success": 0}], 10,
+                           time.perf_counter())
+            progress = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(progress["completed"], 2)
+        self.assertEqual(progress["successful"], 1)
+        self.assertEqual(progress["failed"], 1)
+        self.assertEqual(progress["total"], 10)
 
 
 if __name__ == "__main__":
