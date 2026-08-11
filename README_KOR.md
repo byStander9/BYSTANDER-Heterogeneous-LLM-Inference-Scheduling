@@ -1,4 +1,7 @@
-# BYSTANDER: 이기종 GPU 환경 LLM 추론 스케줄링
+# BYSTANDER: State-Aware End-to-End Latency Prediction for Heterogeneous LLM Inference Scheduling
+
+> 본 연구는 **IEEE CLOUD 2026**(2026 IEEE International Conference on
+> Cloud Computing)에 발표된 논문입니다.
 
 이 레포지토리는 이기종 GPU 클러스터 환경에서 LLM 추론 워크로드를 예측적으로
 스케줄링(라우팅)하는 **BYSTANDER** 시스템의 연구용 소스 코드입니다.
@@ -44,31 +47,34 @@
 
 ```
 .
+├── .gitattributes
+├── .gitignore
 ├── client/                                   # 부하 생성기 (클라이언트 노드에서 실행)
-│   ├── proxy_request_qps.py                  # QPS 제어 스트리밍 요청 발송 메인 스크립트
-│   ├── run_repeated_experiments.sh           # 반복 실험 자동화 (K8s 및 원격 GPU 재시작 포함)
-│   ├── run_single_experiment_with_restart.sh # 단일 실험용 러너
 │   ├── preprocess_lmsys.py                   # LMSYS-chat-1m 데이터셋 전처리 (영어 필터 + shuffle)
-│   └── requirements.txt
+│   ├── proxy_request_qps.py                  # QPS 제어 스트리밍 요청 발송 메인 스크립트
+│   ├── README.md                             # Client 상세 사용법
+│   ├── requirements.txt
+│   ├── run_repeated_experiments.sh           # 알고리즘·QPS 반복 및 K8s/VastAI 재시작
+│   └── tests/
+│       ├── test_client_cli.py                # CLI·dry-run·결과 저장 테스트
+│       └── test_dataset_loading.py           # ShareGPT/LMSYS 로딩 테스트
 │
 ├── proxy/                                    # 프록시 서버 (SLM이 동작하는 노드에서 실행)
-│   ├── proxy_server.py                       # 메인 라우터 (SLM 로딩 + 모든 라우팅 알고리즘)
-│   ├── config.py                             # 백엔드 목록 · 라우팅 설정 · 실험 프리셋
-│   ├── requirements.txt
-│   ├── README.md                             # 프록시 서버 API 상세 문서
 │   ├── .gitignore
-│   └── motivation/                           # 논문의 motivation 실험 (WRR·SQF 한계 시각화)
-│       ├── proxy_server_motivation.py        # motivation 실험 전용 프록시 변형
-│       └── motivation_experiments.py         # motivation 실험 러너 + 플롯 생성
+│   ├── config.py                             # 백엔드 목록 · 라우팅 설정 · 실험 프리셋
+│   ├── proxy_server.py                       # 메인 라우터 (SLM 로딩 + 모든 라우팅 알고리즘)
+│   ├── README.md                             # 프록시 서버 API 상세 문서
+│   ├── README_KOR.md                         # 프록시 서버 한글 문서
+│   ├── requirements.txt
+│   └── tests/
+│       └── test_metrics_collection.py        # vLLM3 메트릭 회귀 테스트
 │
 ├── README.md                                 # 영문판 (GitHub 기본 노출)
 └── README_KOR.md                             # 본 문서 (한글판)
 ```
 
 메인 `proxy/proxy_server.py`는 아래 설명된 vLLM3 통합 메트릭 API를
-사용합니다. `proxy/motivation/proxy_server_motivation.py`는 논문 당시의
-실험용 변형을 그대로 보존하므로 기존 vLLM2의 `/metrics`와
-`/api_server_metrics`를 각각 호출합니다.
+사용합니다. 별도의 motivation 실험용 프록시 변형은 포함하지 않습니다.
 
 ## 라우팅 알고리즘
 
@@ -210,7 +216,7 @@ python proxy_request_qps.py \
 - Fine-tuning 된 SLM 가중치 (`proxy/model/*`)
 - ShareGPT / LMSYS 원본 및 셔플된 대용량 JSON 데이터셋
 - 실험 결과 원본 CSV/XLSX 및 결과 분석 스크립트
-- motivation 이외의 분석·시각화 코드
+- Motivation 실험 및 기타 분석·시각화 코드
 
 ## 라이선스
 

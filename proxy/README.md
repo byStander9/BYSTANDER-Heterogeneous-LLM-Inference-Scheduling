@@ -1,4 +1,9 @@
-# vLLM Proxy Server
+# BYSTANDER: State-Aware End-to-End Latency Prediction for Heterogeneous LLM Inference Scheduling
+
+> This repository accompanies the paper presented at the 2026 IEEE
+> International Conference on Cloud Computing (**IEEE CLOUD 2026**).
+
+## Proxy Server
 
 > 한국어 버전은 [README_KOR.md](README_KOR.md)에서 확인하실 수 있습니다.
 
@@ -43,10 +48,6 @@ The main proxy expects the customized vLLM3 backend API:
 - `POST /reset_custom_metrics` clears BYSTANDER's custom in-memory request
   state. Call it directly on each idle backend between experiments when a
   clean state is required.
-
-The original `motivation/proxy_server_motivation.py` is preserved for
-reproducing the paper's motivation experiments and still expects the legacy
-vLLM2 `/metrics` and `/api_server_metrics` endpoints.
 
 ## Installation
 
@@ -337,15 +338,14 @@ Non-streaming request (high-level):
 
 ```
 proxy/
-├── proxy_server.py             # main proxy server
+├── .gitignore
 ├── config.py                   # configuration (routing, presets, backends)
-├── requirements.txt            # Python dependencies
+├── proxy_server.py             # main proxy server
 ├── README.md                   # this file
 ├── README_KOR.md               # Korean version
-├── .gitignore
-└── motivation/                 # motivation experiment scripts
-    ├── motivation_experiments.py
-    └── proxy_server_motivation.py
+├── requirements.txt            # Python dependencies
+└── tests/
+    └── test_metrics_collection.py  # vLLM3 metrics regression tests
 ```
 
 ## Logging

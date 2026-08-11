@@ -1,4 +1,9 @@
-# vLLM 프록시 서버
+# BYSTANDER: State-Aware End-to-End Latency Prediction for Heterogeneous LLM Inference Scheduling
+
+> 본 연구는 **IEEE CLOUD 2026**(2026 IEEE International Conference on
+> Cloud Computing)에 발표된 논문입니다.
+
+## 프록시 서버
 
 > For the English version, see [README.md](README.md).
 
@@ -43,10 +48,6 @@ BACKEND_SERVERS = [
 - `POST /reset_custom_metrics`는 BYSTANDER가 추가한 메모리 내 요청 상태를
   초기화합니다. 깨끗한 실험 상태가 필요할 때 요청 처리가 끝난 각
   백엔드에 직접 호출합니다.
-
-논문의 motivation 실험 재현을 위해 보존된
-`motivation/proxy_server_motivation.py`는 기존 vLLM2의 `/metrics`와
-`/api_server_metrics` 엔드포인트를 각각 사용합니다.
 
 ## 설치
 
@@ -330,15 +331,14 @@ request_id,timestamp,target_server,target_server_port,RTX3090_SERVER_running,RTX
 
 ```
 proxy/
-├── proxy_server.py             # 메인 프록시 서버
+├── .gitignore
 ├── config.py                   # 설정 (라우팅, 프리셋, 백엔드)
-├── requirements.txt            # Python 의존성
+├── proxy_server.py             # 메인 프록시 서버
 ├── README.md                   # 영어 버전
 ├── README_KOR.md               # 본 문서
-├── .gitignore
-└── motivation/                 # Motivation 실험 스크립트
-    ├── motivation_experiments.py
-    └── proxy_server_motivation.py
+├── requirements.txt            # Python 의존성
+└── tests/
+    └── test_metrics_collection.py  # vLLM3 메트릭 회귀 테스트
 ```
 
 ## 로그

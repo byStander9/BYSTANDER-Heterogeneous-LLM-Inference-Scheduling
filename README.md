@@ -1,4 +1,7 @@
-# BYSTANDER: Heterogeneous LLM Inference Scheduling
+# BYSTANDER: State-Aware End-to-End Latency Prediction for Heterogeneous LLM Inference Scheduling
+
+> This repository accompanies the paper presented at the 2026 IEEE
+> International Conference on Cloud Computing (**IEEE CLOUD 2026**).
 
 This repository contains the research source code for **BYSTANDER**, a system
 that performs predictive scheduling (routing) of LLM inference workloads on
@@ -51,31 +54,34 @@ A Korean version of this document is available at
 
 ```
 .
+├── .gitattributes
+├── .gitignore
 ├── client/                                   # Load generator (runs on the client node)
-│   ├── proxy_request_qps.py                  # Main QPS-controlled streaming client
-│   ├── run_repeated_experiments.sh           # Repeated-experiment driver (with K8s / VastAI restart)
-│   ├── run_single_experiment_with_restart.sh # Single-experiment runner
 │   ├── preprocess_lmsys.py                   # LMSYS-chat-1m preprocessing (English filter + shuffle)
-│   └── requirements.txt
+│   ├── proxy_request_qps.py                  # QPS-controlled streaming workload client
+│   ├── README.md                             # Detailed client usage
+│   ├── requirements.txt
+│   ├── run_repeated_experiments.sh           # Algorithm/QPS repetition with K8s/VastAI restart
+│   └── tests/
+│       ├── test_client_cli.py                # CLI, dry-run, and result-output tests
+│       └── test_dataset_loading.py           # ShareGPT/LMSYS loading tests
 │
 ├── proxy/                                    # Proxy server (runs on the node that hosts the SLM)
-│   ├── proxy_server.py                       # Main router (SLM loading + every routing algorithm)
-│   ├── config.py                             # Backend list · routing options · experiment presets
-│   ├── requirements.txt
-│   ├── README.md                             # Detailed proxy-server API document
 │   ├── .gitignore
-│   └── motivation/                           # Motivation experiments from the paper (WRR/SQF limits)
-│       ├── proxy_server_motivation.py        # Proxy variant used for the motivation experiments
-│       └── motivation_experiments.py         # Motivation experiment runner + plotting
+│   ├── config.py                             # Backend list · routing options · experiment presets
+│   ├── proxy_server.py                       # Main router (SLM loading + every routing algorithm)
+│   ├── README.md                             # Detailed proxy-server API document
+│   ├── README_KOR.md                         # Korean proxy-server document
+│   ├── requirements.txt
+│   └── tests/
+│       └── test_metrics_collection.py        # vLLM3 metrics regression tests
 │
 ├── README.md                                 # This document
 └── README_KOR.md                             # Korean version
 ```
 
 The main `proxy/proxy_server.py` uses the unified vLLM3 metrics API described
-below. `proxy/motivation/proxy_server_motivation.py` is retained as the
-original paper-experiment variant and still uses the legacy vLLM2
-`/metrics` + `/api_server_metrics` pair.
+below. Separate motivation-experiment proxy variants are not included.
 
 ## Routing Algorithms
 
@@ -227,8 +233,8 @@ The following assets are distributed through separate channels:
 - Large shuffled datasets derived from ShareGPT / LMSYS.
 - Raw experiment results (CSV / XLSX) and the analysis / visualization
   scripts used to produce the figures in the paper.
-- Non-workload analysis code; only the motivation experiments from the
-  paper are kept here.
+- Motivation experiments and other non-workload analysis or visualization
+  code.
 
 ## License
 

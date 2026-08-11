@@ -1,9 +1,28 @@
-# BYSTANDER Experiment Client
+# BYSTANDER: State-Aware End-to-End Latency Prediction for Heterogeneous LLM Inference Scheduling
+
+> This repository accompanies the paper presented at the 2026 IEEE
+> International Conference on Cloud Computing (**IEEE CLOUD 2026**).
+
+## Experiment Client
 
 `proxy_request_qps.py` reproduces the proxy workload used by the BYSTANDER
 experiments. It preserves the existing Poisson-style QPS scheduling, dynamic
 QPS ranges, request payload, streaming TTFT/E2E measurement, final 5% burst,
 and CSV/XLSX result schemas.
+
+## Project layout
+
+```text
+client/
+├── preprocess_lmsys.py            # LMSYS-chat-1m preprocessing
+├── proxy_request_qps.py           # QPS-controlled streaming workload client
+├── README.md                      # This document
+├── requirements.txt               # Python dependencies
+├── run_repeated_experiments.sh    # Repetition plus K8s/VastAI restart orchestration
+└── tests/
+    ├── test_client_cli.py         # CLI, dry-run, and result-output tests
+    └── test_dataset_loading.py    # ShareGPT/LMSYS loading tests
+```
 
 ## Setup
 
