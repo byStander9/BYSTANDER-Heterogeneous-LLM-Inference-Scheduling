@@ -44,10 +44,6 @@ BACKEND_SERVERS = [
   초기화합니다. 깨끗한 실험 상태가 필요할 때 요청 처리가 끝난 각
   백엔드에 직접 호출합니다.
 
-논문의 motivation 실험 재현을 위해 보존된
-`motivation/proxy_server_motivation.py`는 기존 vLLM2의 `/metrics`와
-`/api_server_metrics` 엔드포인트를 각각 사용합니다.
-
 ## 설치
 
 ```bash
@@ -335,10 +331,8 @@ proxy/
 ├── requirements.txt            # Python 의존성
 ├── README.md                   # 영어 버전
 ├── README_KOR.md               # 본 문서
-├── .gitignore
-└── motivation/                 # Motivation 실험 스크립트
-    ├── motivation_experiments.py
-    └── proxy_server_motivation.py
+├── tests/                      # vLLM3 메트릭 회귀 테스트
+└── .gitignore
 ```
 
 ## 로그

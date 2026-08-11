@@ -44,10 +44,6 @@ The main proxy expects the customized vLLM3 backend API:
   state. Call it directly on each idle backend between experiments when a
   clean state is required.
 
-The original `motivation/proxy_server_motivation.py` is preserved for
-reproducing the paper's motivation experiments and still expects the legacy
-vLLM2 `/metrics` and `/api_server_metrics` endpoints.
-
 ## Installation
 
 ```bash
@@ -342,10 +338,8 @@ proxy/
 ├── requirements.txt            # Python dependencies
 ├── README.md                   # this file
 ├── README_KOR.md               # Korean version
-├── .gitignore
-└── motivation/                 # motivation experiment scripts
-    ├── motivation_experiments.py
-    └── proxy_server_motivation.py
+├── tests/                      # vLLM3 metrics regression tests
+└── .gitignore
 ```
 
 ## Logging
