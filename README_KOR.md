@@ -1,4 +1,7 @@
-# BYSTANDER: 이기종 GPU 환경 LLM 추론 스케줄링
+# BYSTANDER: State-Aware End-to-End Latency Prediction for Heterogeneous LLM Inference Scheduling
+
+> 본 연구는 **IEEE CLOUD 2026**(2026 IEEE International Conference on
+> Cloud Computing)에 발표된 논문입니다.
 
 이 레포지토리는 이기종 GPU 클러스터 환경에서 LLM 추론 워크로드를 예측적으로
 스케줄링(라우팅)하는 **BYSTANDER** 시스템의 연구용 소스 코드입니다.
@@ -44,20 +47,27 @@
 
 ```
 .
+├── .gitattributes
+├── .gitignore
 ├── client/                                   # 부하 생성기 (클라이언트 노드에서 실행)
-│   ├── proxy_request_qps.py                  # QPS 제어 스트리밍 요청 발송 메인 스크립트
-│   ├── run_repeated_experiments.sh           # 반복 실험 자동화 (K8s 및 원격 GPU 재시작 포함)
 │   ├── preprocess_lmsys.py                   # LMSYS-chat-1m 데이터셋 전처리 (영어 필터 + shuffle)
-│   ├── tests/                                # Client CLI·데이터셋 회귀 테스트
-│   └── requirements.txt
+│   ├── proxy_request_qps.py                  # QPS 제어 스트리밍 요청 발송 메인 스크립트
+│   ├── README.md                             # Client 상세 사용법
+│   ├── requirements.txt
+│   ├── run_repeated_experiments.sh           # 알고리즘·QPS 반복 및 K8s/VastAI 재시작
+│   └── tests/
+│       ├── test_client_cli.py                # CLI·dry-run·결과 저장 테스트
+│       └── test_dataset_loading.py           # ShareGPT/LMSYS 로딩 테스트
 │
 ├── proxy/                                    # 프록시 서버 (SLM이 동작하는 노드에서 실행)
-│   ├── proxy_server.py                       # 메인 라우터 (SLM 로딩 + 모든 라우팅 알고리즘)
+│   ├── .gitignore
 │   ├── config.py                             # 백엔드 목록 · 라우팅 설정 · 실험 프리셋
-│   ├── requirements.txt
+│   ├── proxy_server.py                       # 메인 라우터 (SLM 로딩 + 모든 라우팅 알고리즘)
 │   ├── README.md                             # 프록시 서버 API 상세 문서
-│   ├── tests/                                # vLLM3 메트릭 회귀 테스트
-│   └── .gitignore
+│   ├── README_KOR.md                         # 프록시 서버 한글 문서
+│   ├── requirements.txt
+│   └── tests/
+│       └── test_metrics_collection.py        # vLLM3 메트릭 회귀 테스트
 │
 ├── README.md                                 # 영문판 (GitHub 기본 노출)
 └── README_KOR.md                             # 본 문서 (한글판)

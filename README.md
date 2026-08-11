@@ -1,4 +1,7 @@
-# BYSTANDER: Heterogeneous LLM Inference Scheduling
+# BYSTANDER: State-Aware End-to-End Latency Prediction for Heterogeneous LLM Inference Scheduling
+
+> This repository accompanies the paper presented at the 2026 IEEE
+> International Conference on Cloud Computing (**IEEE CLOUD 2026**).
 
 This repository contains the research source code for **BYSTANDER**, a system
 that performs predictive scheduling (routing) of LLM inference workloads on
@@ -51,20 +54,27 @@ A Korean version of this document is available at
 
 ```
 .
+├── .gitattributes
+├── .gitignore
 ├── client/                                   # Load generator (runs on the client node)
-│   ├── proxy_request_qps.py                  # Main QPS-controlled streaming client
-│   ├── run_repeated_experiments.sh           # Repeated-experiment driver (with K8s / VastAI restart)
 │   ├── preprocess_lmsys.py                   # LMSYS-chat-1m preprocessing (English filter + shuffle)
-│   ├── tests/                                # Client CLI and dataset regression tests
-│   └── requirements.txt
+│   ├── proxy_request_qps.py                  # QPS-controlled streaming workload client
+│   ├── README.md                             # Detailed client usage
+│   ├── requirements.txt
+│   ├── run_repeated_experiments.sh           # Algorithm/QPS repetition with K8s/VastAI restart
+│   └── tests/
+│       ├── test_client_cli.py                # CLI, dry-run, and result-output tests
+│       └── test_dataset_loading.py           # ShareGPT/LMSYS loading tests
 │
 ├── proxy/                                    # Proxy server (runs on the node that hosts the SLM)
-│   ├── proxy_server.py                       # Main router (SLM loading + every routing algorithm)
+│   ├── .gitignore
 │   ├── config.py                             # Backend list · routing options · experiment presets
-│   ├── requirements.txt
+│   ├── proxy_server.py                       # Main router (SLM loading + every routing algorithm)
 │   ├── README.md                             # Detailed proxy-server API document
-│   ├── tests/                                # vLLM3 metrics regression tests
-│   └── .gitignore
+│   ├── README_KOR.md                         # Korean proxy-server document
+│   ├── requirements.txt
+│   └── tests/
+│       └── test_metrics_collection.py        # vLLM3 metrics regression tests
 │
 ├── README.md                                 # This document
 └── README_KOR.md                             # Korean version
